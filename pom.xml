@@ -175,6 +175,7 @@
         <module>debezium-core</module>
         <module>debezium-converter</module>
         <module>debezium-embedded</module>
+        <module>debezium-connector-kudu</module>
         <module>debezium-connector-mysql</module>
         <module>debezium-connector-postgres</module>
         <module>debezium-connector-mongodb</module>
