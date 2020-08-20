@@ -1800,7 +1800,7 @@ flushOption
             BINARY | ENGINE | ERROR | GENERAL | RELAY | SLOW
           )? LOGS
         | OPTIMIZER_COSTS | PRIVILEGES | QUERY CACHE | STATUS
-        | USER_RESOURCES | TABLES (WITH READ LOCK)?
+        | USER_RESOURCES | TABLES (WITH READ LOCK)? | TABLE (WITH READ LOCK)?
        )                                                            #simpleFlushOption
     | RELAY LOGS channelOption?                                     #channelFlushOption
     | TABLES tables flushTableOption?                               #tableFlushOption
