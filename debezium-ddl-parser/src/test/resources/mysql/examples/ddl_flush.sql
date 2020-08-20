@@ -15,5 +15,7 @@ flush TABLE Foo, Bar;
 flush table Foo, Bar for export;
 flush table Foo, Bar with read lock;
 
-
+-- Flush without tables
+flush tables;
+flush table;
 
