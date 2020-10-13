@@ -58,6 +58,7 @@ public class MysqlSourceOperation extends GenericOperation {
         KuduTable kuduTable = client.openTable(tableName);
         switch (eventLog.getOp()) {
             case CREATE:
+                return createInsertOrUpsertOperation(kuduTable);
             case UPDATE:
                 return createUpsertOperation(kuduTable);
             case DELETE:
@@ -65,6 +66,27 @@ public class MysqlSourceOperation extends GenericOperation {
             default:
                 throw new RuntimeException("Unsupported operation, c、u、d only, but " + eventLog.getOp());
         }
+    }
+
+    private Operation createInsertOrUpsertOperation(KuduTable kuduTable) {
+        String insertMode = config.getString(KuduConfig.KEY_MASTER_ADDRESSES);
+        if (KuduConfig.InsertMode.INSERT == KuduConfig.InsertMode.parse(insertMode)) {
+            return createInsertOperation(kuduTable);
+        }
+        else {
+            return createUpsertOperation(kuduTable);
+        }
+    }
+
+    private Operation createInsertOperation(KuduTable kuduTable) {
+        log.info("Creating insert operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        Operation operation = kuduTable.newInsert();
+        PartialRow row = operation.getRow();
+
+        // create or update by after node
+        eventLog.getAfter().forEach((key) -> fillRow(row, key));
+
+        return operation;
     }
 
     private Operation createUpsertOperation(KuduTable kuduTable) {

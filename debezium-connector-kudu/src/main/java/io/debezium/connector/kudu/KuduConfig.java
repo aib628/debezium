@@ -5,18 +5,20 @@
  */
 package io.debezium.connector.kudu;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import org.apache.kafka.common.config.AbstractConfig;
-import org.apache.kafka.common.config.ConfigDef;
-import org.apache.kudu.client.AsyncKuduClient;
-
+import io.debezium.config.EnumeratedValue;
 import io.debezium.connector.kudu.utils.StringUtils;
-
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigException;
+import org.apache.kudu.client.AsyncKuduClient;
 
 @Slf4j
 @Getter
@@ -33,7 +35,12 @@ public abstract class KuduConfig extends AbstractConfig {
      */
     public final static String KEY_TABLE_WHITELIST = "tables";
 
-    /**jjjjkkkkjj
+    /**
+     * 将所有Insert操作以Upsert模式写入，以支持幂等性
+     */
+    public final static String KEY_INSERT_MODE = "insert.mode";
+
+    /**
      * 连接scan token的超时时间，如果不设置，则与operationTimeout一致
      */
     public final static String KEY_QUERY_TIMEOUT = "query.timeout";
@@ -82,6 +89,21 @@ public abstract class KuduConfig extends AbstractConfig {
                 .documentation(
                         "The kudu tables to sync, support source:sink table map, eg:source table name is table_mysql, when config table_mysql:table_kudu, the result table name in kudu is table_kudu")
                 .displayName("Kudu table names");
+
+        keys.define(KEY_INSERT_MODE, ConfigDef.Type.STRING)
+                .defaultValue(InsertMode.UPSERT.name()).importance(ConfigDef.Importance.HIGH)
+                .width(ConfigDef.Width.LONG).group("Sink")
+                .documentation("The insert mode, use insert or upsert expression, default is upsert.")
+                .displayName("Insert mode")
+                .validator(new ConfigDef.Validator() {
+                    @Override
+                    public void ensureValid(String name, Object value) {
+                        List<String> supports = Arrays.stream(InsertMode.values()).map(InsertMode::name).collect(Collectors.toList());
+                        if (!supports.contains(value.toString().toUpperCase())) {
+                            throw new ConfigException(name, value, "Only can be : " + Arrays.toString(InsertMode.values()));
+                        }
+                    }
+                });
 
         keys.define(KEY_QUERY_TIMEOUT).type(ConfigDef.Type.LONG)
                 .defaultValue(AsyncKuduClient.DEFAULT_SOCKET_READ_TIMEOUT_MS).importance(ConfigDef.Importance.HIGH)
@@ -134,4 +156,63 @@ public abstract class KuduConfig extends AbstractConfig {
         log.info("Table sink map : {}", tableMap);
     }
 
+    public enum InsertMode implements EnumeratedValue {
+
+        /**
+         * Use insert expression
+         */
+        INSERT("insert"),
+
+        /**
+         * Use upsert expression
+         */
+        UPSERT("upsert");
+
+        private final String value;
+
+        private InsertMode(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public String getValue() {
+            return value;
+        }
+
+        /**
+         * Determine if the supplied value is one of the predefined options.
+         *
+         * @param value the configuration property value; may not be null
+         * @return the matching option, or null if no match is found
+         */
+        public static InsertMode parse(String value) {
+            if (value == null) {
+                return null;
+            }
+
+            value = value.trim();
+            for (InsertMode option : InsertMode.values()) {
+                if (option.getValue().equalsIgnoreCase(value)) {
+                    return option;
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Determine if the supplied value is one of the predefined options.
+         *
+         * @param value        the configuration property value; may not be null
+         * @param defaultValue the default value; may be null
+         * @return the matching option, or null if no match is found and the non-null default is invalid
+         */
+        public static InsertMode parse(String value, String defaultValue) {
+            InsertMode mode = parse(value);
+            if (mode == null && defaultValue != null) {
+                mode = parse(defaultValue);
+            }
+            return mode;
+        }
+    }
 }
