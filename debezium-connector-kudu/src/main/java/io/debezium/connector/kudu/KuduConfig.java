@@ -5,20 +5,23 @@
  */
 package io.debezium.connector.kudu;
 
-import io.debezium.config.EnumeratedValue;
-import io.debezium.connector.kudu.utils.StringUtils;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
+
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kudu.client.AsyncKuduClient;
+
+import io.debezium.config.EnumeratedValue;
+import io.debezium.connector.kudu.utils.StringUtils;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Getter
@@ -68,6 +71,11 @@ public abstract class KuduConfig extends AbstractConfig {
      */
     public final static String KEY_BATCH_SIZE = "batch.size";
 
+    /**
+     * The number of operations that can be buffered
+     */
+    public final static String KEY_OPEN_DETAIL_LOG = "debug.enabled";
+
     private final Map<String, String> tableMap = new HashMap<>();
 
     public KuduConfig(ConfigDef configDef, Map<?, ?> originals) {
@@ -101,6 +109,24 @@ public abstract class KuduConfig extends AbstractConfig {
                         List<String> supports = Arrays.stream(InsertMode.values()).map(InsertMode::name).collect(Collectors.toList());
                         if (!supports.contains(value.toString().toUpperCase())) {
                             throw new ConfigException(name, value, "Only can be : " + Arrays.toString(InsertMode.values()));
+                        }
+                    }
+                });
+
+        keys.define(KEY_OPEN_DETAIL_LOG, ConfigDef.Type.BOOLEAN)
+                .defaultValue(false).importance(ConfigDef.Importance.LOW)
+                .width(ConfigDef.Width.SHORT).group("Sink")
+                .documentation("The debug switch, use to print detail sink log.")
+                .displayName("Detail log")
+                .validator(new ConfigDef.Validator() {
+                    @Override
+                    public void ensureValid(String name, Object value) {
+                        if (value == null) {
+                            throw new ConfigException(name, null, "Only can be : true | false");
+                        }
+
+                        if (!"true".equalsIgnoreCase(value.toString()) && !"false".equalsIgnoreCase(value.toString())) {
+                            throw new ConfigException(name, value, "Only can be : true | false");
                         }
                     }
                 });

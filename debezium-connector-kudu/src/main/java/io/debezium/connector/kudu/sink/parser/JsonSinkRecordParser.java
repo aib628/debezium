@@ -5,12 +5,9 @@
  */
 package io.debezium.connector.kudu.sink.parser;
 
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.json.JsonConverter;
@@ -28,6 +25,18 @@ import io.debezium.converters.CloudEventsMaker;
 
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ *
+ * input demo: @see /src/test/resources/Debezium.source.sample
+ * source&sink的key.converter&value.converter须成对使用
+ * 该JsonSinkRecordParser解析场景为：
+ *
+ * <pre>
+ * source.key.converter&source.value.converter = org.apache.kafka.connect.json.JsonConverter
+ * sink.key.converter&sink.value.converter = org.apache.kafka.connect.storage.StringConverter
+ * </pre>
+ *
+ */
 @Slf4j
 public class JsonSinkRecordParser implements SinkRecordParser {
 
@@ -133,22 +142,5 @@ public class JsonSinkRecordParser implements SinkRecordParser {
     private JsonNode getPayloadNode(JsonNode jsonNode) {
         String nodeName = CloudEventsMaker.FieldName.PAYLOAD_FIELD_NAME;
         return JacksonUtils.getJsonNode(jsonNode, nodeName).orElseThrow(AbsentNodeException.supplier(nodeName));
-    }
-
-    public Schema.Type mapType(String typeName) {
-        List<String> schemaTypes = Arrays.stream(Schema.Type.values()).map(Schema.Type::name).collect(Collectors.toList());
-        if (schemaTypes.contains(typeName)) {
-            return Schema.Type.valueOf(typeName);
-        }
-
-        switch (typeName) {
-            case "FLOAT":
-                return Schema.Type.FLOAT32;
-            case "DOUBLE":
-                return Schema.Type.FLOAT64;
-        }
-
-        log.warn("No type matched, return string default, {}", typeName);
-        return Schema.Type.STRING; // No match, return string default.
     }
 }

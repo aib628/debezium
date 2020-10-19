@@ -25,6 +25,7 @@ import org.apache.kudu.shaded.com.google.common.collect.Lists;
 
 import io.debezium.connector.kudu.CDCEventLog;
 import io.debezium.connector.kudu.KuduConfig;
+import io.debezium.connector.kudu.utils.KuduUtils;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -38,7 +39,7 @@ public class MysqlSourceOperation extends GenericOperation {
     @Override
     public Operation operate(KuduClient client) throws KuduException {
         String tableName = config.getMappedTable(eventLog.getCanonicalTableName());
-        if (!client.tableExists(tableName)) {
+        if (!kuduTables.containsKey(tableName) && !client.tableExists(tableName)) {
             log.info("Table not exist, begin to create, {}", tableName);
             createTable(client, tableName);
         }
@@ -46,7 +47,9 @@ public class MysqlSourceOperation extends GenericOperation {
             Optional<AlterTableOptions> options = updateTableMetadata(tableName);
             if (options.isPresent()) {
                 log.info("Table schema changed, applying ...");
-                client.alterTable(tableName, options.get());
+                client.alterTable(tableName, options.get()); // 只改变字段列信息，分区Partition信息不作变更，比如主键Hash列变更
+                updateSchemaVersionByEventLog(); // 数据提交成功，尝试将Schema更新为最新的版本
+                kuduTables.remove(tableName); // 清空KuduTable缓存
                 this.needFlush = true; // Flush to db.
             }
         }
@@ -54,17 +57,27 @@ public class MysqlSourceOperation extends GenericOperation {
         return createOperation(client, tableName);
     }
 
-    private Operation createOperation(KuduClient client, String tableName) throws KuduException {
-        KuduTable kuduTable = client.openTable(tableName);
+    private Operation createOperation(KuduClient client, String tableName) {
+        KuduTable kuduTable = kuduTables.computeIfAbsent(tableName, (name) -> {
+            try {
+                return client.openTable(tableName);
+            }
+            catch (KuduException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
         switch (eventLog.getOp()) {
             case CREATE:
+                return createInsertOrUpsertOperation(kuduTable);
+            case READ:
                 return createInsertOrUpsertOperation(kuduTable);
             case UPDATE:
                 return createUpsertOperation(kuduTable);
             case DELETE:
                 return createDeleteOperation(kuduTable);
             default:
-                throw new RuntimeException("Unsupported operation, c、u、d only, but " + eventLog.getOp());
+                throw new RuntimeException("Unsupported operation, c,u,r,d only, but " + eventLog.getOp());
         }
     }
 
@@ -79,7 +92,10 @@ public class MysqlSourceOperation extends GenericOperation {
     }
 
     private Operation createInsertOperation(KuduTable kuduTable) {
-        log.info("Creating insert operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        if (KuduUtils.debugLogOpened(config)) {
+            log.info("Creating insert operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        }
+
         Operation operation = kuduTable.newInsert();
         PartialRow row = operation.getRow();
 
@@ -90,7 +106,10 @@ public class MysqlSourceOperation extends GenericOperation {
     }
 
     private Operation createUpsertOperation(KuduTable kuduTable) {
-        log.info("Creating upsert operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        if (KuduUtils.debugLogOpened(config)) {
+            log.info("Creating upsert operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        }
+
         Operation operation = kuduTable.newUpsert();
         PartialRow row = operation.getRow();
 
@@ -101,7 +120,10 @@ public class MysqlSourceOperation extends GenericOperation {
     }
 
     private Operation createDeleteOperation(KuduTable kuduTable) {
-        log.info("Creating delete operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        if (KuduUtils.debugLogOpened(config)) {
+            log.info("Creating delete operation, {}:{}", kuduTable.getName(), transformToLog(eventLog.getIds()));
+        }
+
         Operation operation = kuduTable.newDelete();
         PartialRow row = operation.getRow();
 

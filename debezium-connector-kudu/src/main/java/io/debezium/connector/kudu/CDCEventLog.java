@@ -28,7 +28,7 @@ public class CDCEventLog {
     // regroup to speed up
     private final Map<String, NodeDefinition> namesByDefinition = new HashMap<>();
 
-    // definition
+    // fields definition
     private final List<NodeDefinition> ids = new ArrayList<>(); // primaryKey definition, parse from key
     private final List<NodeDefinition> before = new ArrayList<>();
     private final List<NodeDefinition> after = new ArrayList<>();
@@ -36,6 +36,10 @@ public class CDCEventLog {
     private final List<NodeDefinition> transaction = new ArrayList<>();
     private Envelope.Operation op = Envelope.Operation.CREATE;
     private Long tsInMillis = 0L;
+
+    // schema version definition, used for ddl statement
+    private Integer keySchemaVersion;// key schema version, only for avro case. json is not supported this field
+    private Integer valueSchemaVersion;// value schema version, only for avro case. json is not supported this field
 
     public NodeDefinition getNodeDefinitionMandatory(DefinitionOwner owner, String nodeName) {
         return getNodeDefinition(owner, nodeName).orElseThrow(AbsentNodeException.supplier(owner.group() + nodeName));
@@ -96,6 +100,27 @@ public class CDCEventLog {
 
     public void setTsInMillis(Long tsInMillis) {
         this.tsInMillis = tsInMillis;
+    }
+
+    public void setKeySchemaVersion(Integer keySchemaVersion) {
+        this.keySchemaVersion = keySchemaVersion;
+    }
+
+    public void setValueSchemaVersion(Integer valueSchemaVersion) {
+        this.valueSchemaVersion = valueSchemaVersion;
+    }
+
+    public boolean needUpdateTableMetadataDefinition(int currentKeySchemaVersion, int currentValueSchemaVersion) {
+        if (keySchemaVersion == null || valueSchemaVersion == null) {
+            return true; // 非AVRO格式无法获取到Version，必须每次更新。
+        }
+
+        // SchemaVersion最低版本为1，如果小于该版本，说明未初始化(未初始定义为0)，此时也需要更新
+        if (currentKeySchemaVersion < keySchemaVersion || currentValueSchemaVersion < valueSchemaVersion) {
+            return true;
+        }
+
+        return false;
     }
 
     public void set(NodeDefinition definition) {

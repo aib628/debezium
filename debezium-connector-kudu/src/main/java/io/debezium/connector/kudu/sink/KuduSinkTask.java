@@ -9,7 +9,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -18,23 +18,26 @@ import org.apache.kafka.connect.json.JsonConverter;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
 import org.apache.kudu.client.KuduException;
-import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import io.debezium.connector.kudu.CDCEventLog;
 import io.debezium.connector.kudu.Version;
-import io.debezium.connector.kudu.sink.parser.JsonSinkRecordParser;
+import io.debezium.connector.kudu.sink.operation.GenericOperation;
+import io.debezium.connector.kudu.sink.parser.SinkRecordParser;
 import io.debezium.connector.kudu.sink.writer.KuduWriter;
+import io.debezium.connector.kudu.utils.KuduUtils;
 import io.debezium.connector.kudu.utils.StringUtils;
+import io.debezium.util.Strings;
 
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class KuduSinkTask extends SinkTask {
 
-    private final String TRACE_ID = "dbz.traceId";
     private KuduWriter writer;
+    private long startupTime = System.currentTimeMillis();
+    private final AtomicLong counter = new AtomicLong(0);
 
     @Override
     public String version() {
@@ -44,14 +47,13 @@ public class KuduSinkTask extends SinkTask {
     @Override
     public void start(Map<String, String> settings) {
         log.info("Starting kudu sink task...");
-        KuduSinkConfig config = new KuduSinkConfig(settings);
-        this.writer = KuduWriter.builder(config);
+        this.startupTime = System.currentTimeMillis();
+        GenericOperation.clearKuduTableDefinitions();
+        this.writer = KuduWriter.builder(new KuduSinkConfig(settings));
     }
 
     @Override
     public void put(Collection<SinkRecord> sinkRecords) {
-        MDC.put(TRACE_ID, UUID.randomUUID().toString().replace("-", "")); // generate global trace id
-
         // when 'tombstones.on.delete' is true, will generate null event
         List<SinkRecord> records = sinkRecords.stream().filter((it) -> {
             if (it.key() == null || it.value() == null) {
@@ -80,9 +82,6 @@ public class KuduSinkTask extends SinkTask {
             log.error("Unexpected exception occur:" + e.getMessage(), e);
             throw new RuntimeException("Unexpected exception occur:" + e.getMessage(), e);
         }
-        finally {
-            MDC.remove(TRACE_ID);
-        }
     }
 
     @Override
@@ -98,17 +97,27 @@ public class KuduSinkTask extends SinkTask {
     private void doPut(List<SinkRecord> sinkRecords) throws KuduException {
         long begin = System.currentTimeMillis();
         log.info("Putting {} records to Kudu", sinkRecords.size());
-        writer.write(sinkRecords.stream().map(this::transform).collect(Collectors.toList()));
-        log.info("Putting done. {} committed, cost {} ms", sinkRecords.size(), System.currentTimeMillis() - begin);
+        for (SinkRecord sinkRecord : sinkRecords) {
+            writer.write(transform(sinkRecord));
+            if (counter.get() < Long.MAX_VALUE) {
+                if (counter.incrementAndGet() % 10000 == 0) {
+                    log.info("{} rows sinked after {}", counter.get(), Strings.duration(System.currentTimeMillis() - startupTime));
+                }
+            }
+        }
+
+        writer.flush();
+        log.info("Putting done. {} committed, costs {} ms", sinkRecords.size(), System.currentTimeMillis() - begin);
     }
 
     private CDCEventLog transform(SinkRecord record) {
+        long beginTime = System.currentTimeMillis();
         if (log.isDebugEnabled()) {
             printRecordInfo(record);
         }
 
         try {
-            return new JsonSinkRecordParser().parse(record);
+            return SinkRecordParser.parse(record, writer.getConfig());
         }
         catch (JsonProcessingException e) {
             log.error("record parse failed, " + e.getMessage(), e);
@@ -117,6 +126,11 @@ public class KuduSinkTask extends SinkTask {
         catch (Exception e) {
             log.error("record parse unexpected error, " + e.getMessage(), e);
             throw new RuntimeException("Transform failed, record parse unexpected error:" + e.getMessage(), e);
+        }
+        finally {
+            if (KuduUtils.debugLogOpened(writer.getConfig())) {
+                log.info("transform one record costs : {} ms", System.currentTimeMillis() - beginTime);
+            }
         }
     }
 

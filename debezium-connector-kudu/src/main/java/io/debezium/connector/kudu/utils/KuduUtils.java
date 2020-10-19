@@ -61,4 +61,21 @@ public class KuduUtils {
             log.error("close session error, for reason:" + e.getMessage(), e);
         }
     }
+
+    public static boolean manualFlushMode(KuduConfig config) {
+        String flushMode = config.getString(KuduConfig.KEY_FLUSH_MODE);
+        if (StringUtils.isEmpty(flushMode)) {
+            return true;
+        }
+
+        if (SessionConfiguration.FlushMode.MANUAL_FLUSH.name().equalsIgnoreCase(flushMode)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static boolean debugLogOpened(KuduConfig config) {
+        return config.getBoolean(KuduConfig.KEY_OPEN_DETAIL_LOG);
+    }
 }
