@@ -100,25 +100,26 @@ public class KuduWriter {
         try {
             for (Operation operation : operations) {
                 session.apply(operation);
-                if (session.countPendingErrors() != 0) {
-                    log.error("inserting to kudu error, there were the first few errors follow:");
-                    RowErrorsAndOverflowStatus errorsAndStatus = session.getPendingErrors();
-                    RowError[] errors = errorsAndStatus.getRowErrors();
-                    for (int i = 0; i < Math.min(errors.length, 5); i++) {
-                        log.error(errors[i].toString());
-                    }
-
-                    if (errorsAndStatus.isOverflowed()) {
-                        log.error("error buffer overflowed: some errors were discarded");
-                    }
-
-                    throw new RuntimeException(String.format("inserting to kudu error, rows : %s", session.countPendingErrors()));
-                }
             }
 
             if (KuduUtils.manualFlushMode(config)) { // manual_flush need to flush, other not.
                 session.flush(); // flush to disk. when manual_flush must call it
                 log.info("flush {} operations costs : {} ms", operations.size(), System.currentTimeMillis() - beginTime);
+            }
+
+            if (session.countPendingErrors() != 0) {
+                log.error("inserting to kudu error, there were the first few errors follow:");
+                RowErrorsAndOverflowStatus errorsAndStatus = session.getPendingErrors();
+                RowError[] errors = errorsAndStatus.getRowErrors();
+                for (int i = 0; i < Math.min(errors.length, 5); i++) {
+                    log.error(errors[i].toString());
+                }
+
+                if (errorsAndStatus.isOverflowed()) {
+                    log.error("error buffer overflowed: some errors were discarded");
+                }
+
+                throw new RuntimeException(String.format("inserting to kudu error, rows : %s", session.countPendingErrors()));
             }
         }
         finally {
